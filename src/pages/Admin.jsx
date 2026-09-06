@@ -54,8 +54,8 @@ export default function Admin() {
       {error ? <p className="mt-4 text-red-300" role="alert">{error}</p> : null}
       {submissions ? <div className="mt-10 overflow-x-auto rounded-lg border border-slate-800">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-900 text-slate-300"><tr><th className="p-4">Name</th><th className="p-4">Letter</th><th className="p-4">Time picking</th><th className="p-4">Submitted</th></tr></thead>
-          <tbody>{submissions.map((submission, index) => <tr className="border-t border-slate-800" key={`${submission.submitted_at}-${index}`}><td className="p-4">{submission.participant_name}</td><td className="p-4">{submission.letter_name}</td><td className="p-4">{formatDuration(submission.duration_ms)}</td><td className="p-4">{new Date(submission.submitted_at).toLocaleString()}</td></tr>)}</tbody>
+          <thead className="bg-slate-900 text-slate-300"><tr><th className="p-4">Name</th><th className="p-4">Browser</th><th className="p-4">Choice #</th><th className="p-4">Letter</th><th className="p-4">Time picking</th><th className="p-4">Submitted</th></tr></thead>
+          <tbody>{submissions.map(submission => <tr className="border-t border-slate-800" key={submission.id}><td className="p-4">{submission.participant_name}</td><td className="p-4 font-mono" title={submission.visitor_id}>{submission.visitor_id.replace(/^test:/,'').slice(0,8)}</td><td className="p-4">{submission.choice_order}</td><td className="p-4">{submission.letter_name}</td><td className="p-4">{formatDuration(submission.duration_ms)}</td><td className="p-4">{new Date(submission.submitted_at).toLocaleString()}</td></tr>)}</tbody>
         </table>
         {submissions.length === 0 ? <p className="p-6 text-slate-400">No decisions yet.</p> : null}
       </div> : null}

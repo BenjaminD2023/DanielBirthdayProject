@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { letters } from '../src/components/magical/letterData.js';
 
 const letterNames = new Map(letters.map(({ id, name }) => [id, name]));
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let client;
 
 function database() {
@@ -17,8 +18,9 @@ export function validateSubmission(body) {
   const name = typeof body?.name === 'string' ? body.name.trim() : '';
   const letterId = typeof body?.letterId === 'string' ? body.letterId : '';
   const durationMs = typeof body?.durationMs === 'number' ? body.durationMs : NaN;
-  if (!name || name.length > 32 || !letterNames.has(letterId) || !Number.isInteger(durationMs) || durationMs < 0 || durationMs > 86_400_000) return null;
-  return { name, letterId, letterName: letterNames.get(letterId), durationMs };
+  const requestId = typeof body?.requestId === 'string' ? body.requestId : '';
+  if (!name || name.length > 32 || !letterNames.has(letterId) || !uuid.test(requestId) || !Number.isInteger(durationMs) || durationMs < 0 || durationMs > 86_400_000) return null;
+  return { name, letterId, letterName: letterNames.get(letterId), durationMs, requestId };
 }
 
 function equalSecret(expected, supplied) {
@@ -50,7 +52,7 @@ export function isAuthorized(req) {
 
 function visitorId(req) {
   const value = cookie(req, 'decision_visitor');
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : null;
+  return uuid.test(value) ? value : null;
 }
 
 export default async function handler(req, res) {
@@ -61,16 +63,14 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       if (action === 'status') {
         const id = visitorId(req) || randomUUID();
-        const { data, error } = await database().from('letter_decisions').select('letter_id').eq('visitor_id', id).maybeSingle();
-        if (error) throw error;
         setCookie(res, 'decision_visitor', id, 31536000);
-        return res.status(200).json({ admin: isAuthorized(req), submitted: Boolean(data) });
+        return res.status(200).json({ admin: isAuthorized(req) });
       }
       if (!isAuthorized(req)) return res.status(401).json({ error: 'Incorrect password.' });
       const { data: submissions, error } = await database()
-        .from('letter_decisions')
-        .select('participant_name,letter_id,letter_name,duration_ms,submitted_at')
-        .order('submitted_at', { ascending: false })
+        .from('letter_decision_history')
+        .select('id,visitor_id,choice_order,participant_name,letter_id,letter_name,duration_ms,submitted_at')
+        .order('id', { ascending: false })
         .limit(500);
       if (error) throw error;
       return res.status(200).json({ submissions });
@@ -101,18 +101,17 @@ export default async function handler(req, res) {
 
       if (body.adminTest && !isAuthorized(req)) return res.status(401).json({ error: 'Admin session expired. Enter the password again.' });
       const admin = body.adminTest === true && isAuthorized(req);
-      const id = admin ? randomUUID() : visitorId(req);
+      const id = visitorId(req);
       if (!id) return res.status(428).json({ error: 'Please reload with cookies enabled before choosing.' });
-      const { error } = await database().from('letter_decisions').insert({
-        visitor_id: id,
+      const { error } = await database().from('letter_decisions').upsert({
+        visitor_id: admin ? `test:${id}` : id,
+        request_id: submission.requestId,
         participant_name: admin ? `[Test] ${submission.name}`.slice(0, 32) : submission.name,
         letter_id: submission.letterId,
         letter_name: submission.letterName,
         duration_ms: submission.durationMs,
-      });
-      const duplicate = error?.code === '23505';
-      if (error && !duplicate) throw error;
-      if (duplicate) return res.status(409).json({ error: 'This browser has already chosen a letter.', duplicate: true });
+      }, { onConflict: 'visitor_id,request_id', ignoreDuplicates: true });
+      if (error) throw error;
       return res.status(200).json({ ok: true, test: admin });
     }
 
